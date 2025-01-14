@@ -1,0 +1,98 @@
+import tweepy
+import pandas as pd
+import time
+
+# Function to authenticate with the Twitter API
+def authenticate(bearer_token):
+    client = tweepy.Client(bearer_token=bearer_token)
+    return client
+
+# Function to search for users based on keywords in tweets
+def search_users_v2(client, keywords, min_followers=10000, max_followers=50000, max_results=100):
+    results = []
+    rate_limit_count = 0  # Counter for consecutive rate limit errors
+    for keyword in keywords:
+        next_token = None
+        while True:
+            try:
+                # Search recent tweets containing the keyword
+                response = client.search_recent_tweets(
+                    query=keyword,
+                    max_results=min(max_results, 10),
+                    tweet_fields=["author_id"],
+                    expansions="author_id",
+                    user_fields=["username", "description", "public_metrics"],
+                    next_token=next_token
+                )
+                print(f"Keyword: {keyword}, Response: {response.meta}")  # Debugging output
+
+                if response.includes and "users" in response.includes:
+                    for user in response.includes["users"]:
+                        followers_count = user.public_metrics["followers_count"]
+                        # Debugging output for each user
+                        print(f"Username: {user.username}, Followers: {followers_count}")
+
+                        # Apply follower count filter
+                        if min_followers <= followers_count <= max_followers:
+                            print(f"Matched user: {user.username}, Followers: {followers_count}")
+                            profile = {
+                                'Name': user.name,
+                                'Username': user.username,
+                                'Description': user.description,
+                                'Followers Count': followers_count,
+                                'Profile URL': f"https://twitter.com/{user.username}"
+                            }
+                            results.append(profile)
+                        else:
+                            print(f"Skipped user: {user.username}, Followers: {followers_count}")
+
+                # Pagination: check for next_token
+                next_token = response.meta.get("next_token")
+                if not next_token:
+                    break
+
+                # Reset rate limit count on successful API call
+                rate_limit_count = 0
+
+            except tweepy.TooManyRequests:
+                rate_limit_count += 1
+                print(f"Rate limit exceeded at {time.ctime()}. Waiting for 15 minutes...")
+                time.sleep(15 * 60)  # Wait for 15 minutes
+
+                # Stop execution if rate limit exceeded twice consecutively
+                if rate_limit_count >= 2:
+                    print("Rate limit exceeded twice consecutively. Stopping execution...")
+                    return results
+
+            except Exception as e:
+                print(f"Error occurred: {e}")
+                break
+
+    return results
+
+# Main function
+def main():
+    # Replace with your Twitter API credentials
+    BEARER_TOKEN = "YOUR_BEARER_TOKEN_HERE"  # Replace with your actual token
+
+    # Add keywords to search for specific influencers
+    keywords = ["Add your keywords here"]
+
+    # Authenticate with the Twitter API
+    client = authenticate(BEARER_TOKEN)
+
+    # Search for profiles
+    print("Searching for profiles...")
+    profiles = search_users_v2(client, keywords, min_followers=10000, max_followers=50000)
+
+    # Save results to a CSV file
+    if profiles:
+        df = pd.DataFrame(profiles)
+        output_file = "influencers_filtered.csv"
+        df.to_csv(output_file, index=False)
+        print(f"Results saved to {output_file}")
+    else:
+        print("No matching profiles found.")
+
+if __name__ == "__main__":
+    main()
